@@ -278,14 +278,38 @@ class MainCar extends Car {
     return intersections;
   }
   #checkTrafficCollison(traffic){
+    for (let i = 0; i < this.polygon.length; i++) {
+      for (let j = 0; j < traffic.length; j++) {
+        for (let k = 0; k < traffic[j].length; k++) {
+          let collision;
+          if (i == this.polygon.length-1 && k != traffic[j].length-1){
+            collision = getIntersection(this.polygon[i], this.polygon[0], this.traffic[j][k], this.traffic[j][k+1])
+          }
+          else if (i != this.polygon.length-1 && k == traffic[j].length-1){
+            collision = getIntersection(this.polygon[i], this.polygon[i+1], this.traffic[j][k], this.traffic[j][0])
+          }
+          else if (i == this.polygon.length-1 && k == traffic[j].length-1){
+            collision = getIntersection(this.polygon[i], this.polygon[0], this.traffic[j][k], this.traffic[j][0])
+          }
+          else{
+          collision = getIntersection(this.polygon[i], this.polygon[i+1], this.traffic[j][k], this.traffic[j][k+1])
+          }
+          if (collision){
+            cosnole.log(collision)
+            return {type:'CAR', ...collision}
+          }
+        }
+      }
+    }
+    return []
   }
   #checkCollison(traffic){
     let laneIntersections = this.#checkLaneCollison()
-    if (laneIntersections.length!=0){
+    let trafficIntersections = this.#checkTrafficCollison(traffic)
+    if (laneIntersections.length != 0 || trafficIntersections.length!=0){
       console.log(laneIntersections)
       this.end=true
     }
-    let trafficIntersections = this.#checkTrafficCollison(traffic)
   }
   draw(){
     ctx.beginPath()
