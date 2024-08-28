@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Car Sim</title>
+    <link rel="stylesheet" href="style.css" type="text/css" media="all" />
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="box">
+      <button class="btn btn-1" ontouchend="steer(null)" ontouchstart="steer(-1)">Left</button>
+      <button class="btn btn-4" ontouchend="steer(null)" ontouchstart="steer(1)">Right</button>
+      <button class="btn btn-2" ontouchend="steer(null)" ontouchstart="steer(0.5)">Up</button>
+      <button class="btn btn-3" ontouchend="steer(null)" ontouchstart="steer(-0.5)">Down</button>
+    </div>
+  <script src="main.js" type="text/javascript" charset="utf-8"></script>
+  </body>
+</html>
