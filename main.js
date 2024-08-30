@@ -14,6 +14,62 @@ let latency = 1000/FPS;
 const lerp = (a,b,t) => {
   return a + (b-a) *t
 }
+
+
+/****************************************
+ =============== NETWORK =============== 
+ ***************************************/
+
+class MathFunc{}
+class Layer{
+  constructor(inputCount, outputCount){
+    this.activations = new Array(outputCount)
+    this.biases = new Array(outputCount)
+    this.weights = new Array(outputCount)
+    for (let i = 0; i < outputCount; i++) {
+      this.biases[i] = Math.random()*2-1
+      this.weights[i] = new Array(inputCount)
+    }
+    for (let i = 0; i < outputCount; i++) {
+      for (let j = 0; j < inputCount; j++) {
+        this.weights[i][j] = Math.random()*2-1;
+      }
+    }
+  }
+  static feedforward(inputs, level){
+    for (let i = 0; i < level.activations.length; i++) {
+      let sum = 0;
+      for (let j = 0; j < level.weights[i].length; j++) {
+        sum += level.weights[i][j]*inputs[j]
+      }
+      if (sum>level.biases[i]) {
+        level.activations[i] = 1
+      }else{
+        level.activations[i] = 0
+      }
+    }
+    return level.activations;
+  }
+}
+class Network{
+  // 5,6,6,4
+  constructor(shape){
+    this.layer = []
+    for (let i = 0; i < shape.length - 1; i++) {
+      this.layer.push(new Layer(shape[i], shape[i+1]))
+    }
+  }
+  feedforward(input){
+    let output = Layer.feedforward(input, this.layer[0])
+    for (let i = 1; i < this.layer.length; i++) {
+      output = Layer.feedforward(output, this.layer[i])
+    }
+    return output
+  }
+}
+
+/***************************************/
+
 class Controls{
   constructor(){
     this.left = false
@@ -89,7 +145,7 @@ class Road{
 }
 let road = new Road()
 
-function getIntersection(A,B,C,D){ 
+const segmentIntersection = (A,B,C,D) =>{ 
     const tTop=(D.x-C.x)*(A.y-C.y)-(D.y-C.y)*(A.x-C.x);
     const uTop=(C.y-A.y)*(A.x-B.x)-(C.x-A.x)*(A.y-B.y);
     const bottom=(D.y-C.y)*(B.x-A.x)-(D.x-C.x)*(B.y-A.y);
@@ -108,13 +164,46 @@ function getIntersection(A,B,C,D){
 
     return null;
 }
+const segPolyIntersection = (segment, polygon, all) => {
+  let intersections = [];
+  for (let i = 0; i < polygon.length; i++) {
+    let touch = segmentIntersection(segment[0], segment[1], polygon[i], polygon[(i+1)%polygon.length])
+    if (touch){
+      intersections.push(touch)
+    }
+  }
+  if(intersections.length !=0 && all){
+    return intersections
+  }
+  if (intersections.length != 0 && !all){
+    let touches = intersections.map(e=>e.offset)
+    return intersections[touches.indexOf(Math.min(...touches))];
+  }
+  return null;
+}
+const polyIntersection = (p1, p2) => {
+  let intersections = []
+  for (let i = 0; i < p1.length; i++) {
+    let touch = segPolyIntersection([p1[i], p1[(i+1)%p1.length]], p2, true)
+    if (touch){
+      for (let i of touch){
+        intersections.push(i)
+      }
+    }
+  }
+  if(intersections.length != 0){
+    let touches = intersections.map(e=>e.offset)
+    return intersections[touches.indexOf(Math.min(...touches))]
+  }
+  return null
+}
 
 class Sensors{
   constructor(car){
     this.car = car
-    this.sensorCount = 3
-    this.sectorAngle = Math.PI/4
-    this.sensorRange = 100
+    this.sensorCount = 5
+    this.sectorAngle = 7*Math.PI/18
+    this.sensorRange = 200
     this.sensors = []
     this.#init()
   }
@@ -129,12 +218,11 @@ class Sensors{
       }
       this.sensors.push(newSensor)
     }
-    console.log(this.sensors)
   }
   draw(carX, carY, angle){
     this.sensors.forEach((e, index)=>{
       ctx.beginPath()
-      ctx.lineWidth = 3
+      ctx.lineWidth = 2
       ctx.strokeStyle="#ff0"
       ctx.moveTo(0,0)
       ctx.moveTo(0,0)
@@ -161,27 +249,21 @@ class Sensors{
       // ray segment with side lane
       let A = { x:carX + (e.x * Math.cos(angle) - e.y * Math.sin(angle)), y: carY + (e.x * Math.sin(angle) + e.y * Math.cos(angle))}
       let B = { x:carX, y: carY}
-      let left_intersection = getIntersection(A,B,C,D)
-      let right_intersection = getIntersection(A,B,E,F)
-      // with traffic
-      for (let i = 0; i < traffic.length; i++) {
-        for (let j = 0; j < traffic[i].polygon.length; j++) {
-          let car_intersection;
-          if(j==traffic[i].polygon.length-1){
-            car_intersection = getIntersection(traffic[i].polygon[j], traffic[i].polygon[0], A, B)
-          }else{
-            car_intersection = getIntersection(traffic[i].polygon[j], traffic[i].polygon[j+1], A, B)
-          }
-          if (car_intersection){
-            intersections.push(car_intersection)
-          }
-        }
-      }
-      
+      let left_intersection = segmentIntersection(B, A,C,D)
+      let right_intersection = segmentIntersection(B,A,E,F)
       if (left_intersection){intersections.push(left_intersection)}
       if (right_intersection){intersections.push(right_intersection)}
-      let touches = intersections.map(e=>e.offset)
-      if (touches.length != 0){
+      
+      // with traffic
+      for (let i = 0; i < traffic.length; i++) {
+        let touch = segPolyIntersection([B, A], traffic[i].polygon, true)
+        if (touch){
+          for (let i of touch){
+          intersections.push(i)}
+        }
+      }
+      if (intersections.length != 0){
+        let touches = intersections.map(e=>e.offset)
         e.active = true;
         e.intersection = intersections[touches.indexOf(Math.min(...touches))]
       }
@@ -196,8 +278,6 @@ class Sensors{
 class Car{
   constructor(){
     // this.x = CANVAS_WIDTH/3;
-    this.x = road.getLanCenter(2);
-    this.y = 3*CANVAS_HEIGHT/4;
     this.polygon = []
     this.maxSpeed = 3
     this.speed = 0
@@ -208,6 +288,57 @@ class Car{
     this.angle
     this.flip = 0
   }
+  update(){
+    this.x += Math.sin(this.angle * (Math.PI/180)) * this.speed
+    this.y -= Math.cos(this.angle * (Math.PI/180)) * this.speed
+    if (this.speed > this.maxSpeed) {
+      this.speed = this.maxSpeed
+    }
+    if (this.speed < -this.maxSpeed/2) {
+      this.speed = -this.maxSpeed/2
+    }
+  }
+}
+
+class TrafficCar extends Car {
+  constructor(){
+    super()
+    this.x = road.getLanCenter(1);
+    this.y = 2*CANVAS_HEIGHT/4;
+  }
+  #createpolygon(){
+    this.polygon=[
+        {x: this.x - 14, y: this.y - 28},
+        {x: this.x + 14, y: this.y - 28},
+        {x: this.x + 14, y: this.y + 28},
+        {x: this.x - 14, y: this.y + 28}
+      ]
+  }
+  draw(){
+    ctx.beginPath()
+    ctx.save()
+    ctx.translate(this.x, this.y)
+    ctx.rect(-14,-28,28,56)
+    ctx.fill()
+    ctx.restore()
+  }
+  update(){
+    this.speed += this.acceleration
+    this.#createpolygon()
+    super.update()
+  }
+}
+class MainCar extends Car {
+  constructor(){
+    super()
+    this.sensors = new Sensors(this)
+    this.brain = new Network([this.sensors.sensorCount,6,4])
+    this.end = false
+    this.mode = 'AI'
+    this.maxSpeed = 5
+    this.x = road.getLanCenter(1);
+    this.y = 3*CANVAS_HEIGHT/4;
+  }
   #createpolygon(){
     let rad = this.angle * (Math.PI/180)
     this.polygon = [
@@ -217,42 +348,7 @@ class Car{
       {x: this.x - (14 * Math.cos(rad) - 28 * Math.sin(rad)), y: this.y - (14 * Math.sin(rad) + 28 * Math.cos(rad))},
       ]
   }
-  update(){
-    this.x += Math.sin(this.angle * (Math.PI/180)) * this.speed
-    this.y -= Math.cos(this.angle * (Math.PI/180)) * this.speed
-    this.#createpolygon()
-    if (this.speed > this.maxSpeed) {
-      this.speed = this.maxSpeed
-    }
-    if (this.speed < -this.maxSpeed/2) {
-      this.speed = -this.maxSpeed/2
-    }
-  }
-}
-class TrafficCar extends Car {
-  draw(){
-    ctx.beginPath()
-    ctx.save()
-    ctx.translate(this.x, this.y)
-    ctx.rotate(this.angle * (Math.PI/180))
-    ctx.rect(-14,-28,28,56)
-    ctx.fill()
-    ctx.restore()
-  }
-  update(){
-    this.speed += this.acceleration
-    super.update()
-  }
-}
-class MainCar extends Car {
-  constructor(){
-    super()
-    this.sensors = new Sensors(this)
-    this.end = false
-    this.maxSpeed = 5
-  }
   #checkLaneCollison(){
-    let intersections = []
     // lane
     let C = { x:road.borders.left, y: road.borders.top}
     let D = { x:road.borders.left, y: road.borders.bottom}
@@ -262,57 +358,37 @@ class MainCar extends Car {
       let left_intersection;
       let right_intersection;
       if(i==this.polygon.length-1){
-        left_intersection = getIntersection(this.polygon[i], this.polygon[0], C, D)
-        right_intersection = getIntersection(this.polygon[i], this.polygon[0], E, F)
+        left_intersection = segmentIntersection(this.polygon[i], this.polygon[0], C, D)
+        right_intersection = segmentIntersection(this.polygon[i], this.polygon[0], E, F)
       }else{
-        left_intersection = getIntersection(this.polygon[i], this.polygon[i+1], C, D)
-        right_intersection = getIntersection(this.polygon[i], this.polygon[i+1], E, F)
+        left_intersection = segmentIntersection(this.polygon[i], this.polygon[i+1], C, D)
+        right_intersection = segmentIntersection(this.polygon[i], this.polygon[i+1], E, F)
       }
-      if (left_intersection){
-        intersections.push({type : 'lane', ...left_intersection})
-      }
-      if (right_intersection){
-        intersections.push({type : 'lane', ...right_intersection})
+      if (left_intersection || right_intersection){
+        return true
       }
     }
-    return intersections;
+    return false;
   }
   #checkTrafficCollison(traffic){
-    for (let i = 0; i < this.polygon.length; i++) {
-      for (let j = 0; j < traffic.length; j++) {
-        for (let k = 0; k < traffic[j].length; k++) {
-          let collision;
-          if (i == this.polygon.length-1 && k != traffic[j].length-1){
-            collision = getIntersection(this.polygon[i], this.polygon[0], this.traffic[j][k], this.traffic[j][k+1])
-          }
-          else if (i != this.polygon.length-1 && k == traffic[j].length-1){
-            collision = getIntersection(this.polygon[i], this.polygon[i+1], this.traffic[j][k], this.traffic[j][0])
-          }
-          else if (i == this.polygon.length-1 && k == traffic[j].length-1){
-            collision = getIntersection(this.polygon[i], this.polygon[0], this.traffic[j][k], this.traffic[j][0])
-          }
-          else{
-          collision = getIntersection(this.polygon[i], this.polygon[i+1], this.traffic[j][k], this.traffic[j][k+1])
-          }
-          if (collision){
-            cosnole.log(collision)
-            return {type:'CAR', ...collision}
-          }
-        }
+    for (let i = 0; i < traffic.length; i++) {
+      let touch = polyIntersection(this.polygon, traffic[i].polygon)
+      if (touch){
+        return true
       }
     }
-    return []
+    return false
   }
   #checkCollison(traffic){
     let laneIntersections = this.#checkLaneCollison()
     let trafficIntersections = this.#checkTrafficCollison(traffic)
-    if (laneIntersections.length != 0 || trafficIntersections.length!=0){
-      console.log(laneIntersections)
+    if (laneIntersections || trafficIntersections){
       this.end=true
     }
   }
   draw(){
     ctx.beginPath()
+    ctx.save()
     ctx.translate(this.x, this.y)
     ctx.rotate(this.angle * (Math.PI/180))
     ctx.rect(-14,-28,28,56)
@@ -320,23 +396,52 @@ class MainCar extends Car {
     else{ctx.fillStyle='#000'}
     ctx.fill()
     this.sensors.draw(this.x, this.y, this.angle * (Math.PI/180))
+    ctx.restore()
   }
   update(traffic){
-    if(this.end){return;}
+    if(this.end || this.#checkCollison(traffic)){return;}
+    super.update()
+    this.#createpolygon()
     this.sensors.listen(this.x, this.y, this.angle * (Math.PI/180), traffic)
-    this.#checkCollison(traffic)
-    if (controls.forward) {
+    
+    
+    let activations = this.sensors.sensors.map(e=>{
+      if(e.active){
+        return 1 - e.intersection.offset
+      }
+      return 0
+    })
+    let direction = this.brain.feedforward(activations)
+    console.log(direction)
+    if(this.mode=='AI'){
+     if (direction[0]) {
       this.speed += this.acceleration
     }
-    else if (controls.reverse) {
+      else if (direction[1]) {
       this.speed -= this.acceleration
     }
-    if (controls.forward || controls.reverse){
+      if (direction[0] || direction[1]){
+      if (direction[2]) {
+      this.angle -= this.angularAcc * this.flip
+    }
+      else if (direction[3]) {
+      this.angle += this.angularAcc * this.flip
+    }
+    }
+    } else{
+      if (controls.forward) {
+      this.speed += this.acceleration
+    }
+      else if (controls.reverse) {
+      this.speed -= this.acceleration
+    }
+      if (controls.forward || controls.reverse){
       if (controls.left) {
       this.angle -= this.angularAcc * this.flip
     }
       else if (controls.right) {
       this.angle += this.angularAcc * this.flip
+    }
     }
     }
     if (this.speed > 0){
@@ -350,7 +455,6 @@ class MainCar extends Car {
     if (Math.abs(this.speed) <= Math.abs(this.friction)){
       this.speed = 0
     }
-    super.update()
   }
 }
 let main_car = new MainCar()
@@ -368,11 +472,11 @@ const main = () =>{
     ctx.translate(0,-main_car.y+CANVAS_HEIGHT*0.7)
     road.draw()
     traffic.forEach(car=>{
-      car.draw()
       car.update()
+      car.draw()
     })
-    main_car.draw()
     main_car.update(traffic)
+    main_car.draw()
     ctx.restore()
   }
 }
