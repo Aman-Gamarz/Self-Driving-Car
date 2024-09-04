@@ -53,12 +53,40 @@ class Layer{
 }
 class Network{
   // 5,6,6,4
-  constructor(shape){
+  constructor(shape, mutationIndex, parentNetwork){
     this.layer = []
     for (let i = 0; i < shape.length - 1; i++) {
       this.layer.push(new Layer(shape[i], shape[i+1]))
     }
+    let cachedLayer = JSON.parse(localStorage.getItem("car_network"))
+    if(cachedLayer && parentNetwork == undefined){
+      this.layer = cachedLayer.layer
+    }
+    if(parentNetwork != undefined){
+      this.layer = parentNetwork.layer
+    }
+    for (let i = 0; i < this.layer.length; i++) {
+        for (let j = 0; j < this.layer[i].biases.length; j++) {
+          this.layer[i].biases[j] = lerp(
+            this.layer[i].biases[j],
+            Math.random()*2-1,
+            mutationIndex,
+            )
+        }
+      }
+    for (let i = 0; i < this.layer.length; i++) {
+        for (let j = 0; j < this.layer[i].weights.length; j++) {
+          for (let k = 0; k < this.layer[i].weights[j].length; k++) {
+          this.layer[i].weights[j][k] = lerp(
+            this.layer[i].weights[j][k],
+            Math.random()*2-1,
+            mutationIndex,
+            )
+        }
+      }
+    }
   }
+  
   feedforward(input){
     let output = Layer.feedforward(input, this.layer[0])
     for (let i = 1; i < this.layer.length; i++) {
@@ -66,6 +94,10 @@ class Network{
     }
     return output
   }
+}
+const save = () =>{
+  let bestCarIndex = main_cars.map(e=>e.y).indexOf(Math.min(...main_cars.map(e=>e.y)))
+  localStorage.setItem('car_network', JSON.stringify(main_cars[bestCarIndex].brain))
 }
 
 /***************************************/
@@ -104,7 +136,7 @@ const steer=(dir)=>{
 
 class Road{
   constructor(){
-    this.laneCount = 3
+    this.laneCount = 4
     this.left = 10
     this.right = CANVAS_WIDTH - 10
     const infinity = 10000;
@@ -301,10 +333,10 @@ class Car{
 }
 
 class TrafficCar extends Car {
-  constructor(){
+  constructor(x, y){
     super()
-    this.x = road.getLanCenter(1);
-    this.y = 2*CANVAS_HEIGHT/4;
+    this.x = x;
+    this.y = y;
   }
   #createpolygon(){
     this.polygon=[
@@ -329,10 +361,10 @@ class TrafficCar extends Car {
   }
 }
 class MainCar extends Car {
-  constructor(){
+  constructor(parentNetwork){
     super()
     this.sensors = new Sensors(this)
-    this.brain = new Network([this.sensors.sensorCount,6,4])
+    this.brain = new Network([this.sensors.sensorCount,6,4], 0.1, parentNetwork)
     this.end = false
     this.mode = 'AI'
     this.maxSpeed = 5
@@ -386,16 +418,20 @@ class MainCar extends Car {
       this.end=true
     }
   }
-  draw(){
+  draw(best){
     ctx.beginPath()
     ctx.save()
     ctx.translate(this.x, this.y)
     ctx.rotate(this.angle * (Math.PI/180))
     ctx.rect(-14,-28,28,56)
     if(this.end){ctx.fillStyle='#000000a4'}
-    else{ctx.fillStyle='#000'}
+    else{
+      ctx.fillStyle='#00f'
+    }
     ctx.fill()
-    this.sensors.draw(this.x, this.y, this.angle * (Math.PI/180))
+    if(best){
+      this.sensors.draw(this.x, this.y, this.angle * (Math.PI/180))
+    }
     ctx.restore()
   }
   update(traffic){
@@ -412,7 +448,6 @@ class MainCar extends Car {
       return 0
     })
     let direction = this.brain.feedforward(activations)
-    console.log(direction)
     if(this.mode=='AI'){
      if (direction[0]) {
       this.speed += this.acceleration
@@ -457,26 +492,78 @@ class MainCar extends Car {
     }
   }
 }
-let main_car = new MainCar()
-let traffic = [new TrafficCar()]
-
+let patchCount = 100;
+let main_cars = []
+for (let i = 0; i < patchCount; i++) {
+  main_cars.push(new MainCar())
+}
+let traffic = [
+  new TrafficCar(road.getLanCenter(1), 1*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(0), 0*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(2), -1*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(1), -2*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(0), -2*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(0), -3*CANVAS_HEIGHT/3),
+  new TrafficCar(road.getLanCenter(1), -3*CANVAS_HEIGHT/3),
+]
+let carExtend = -3
 let lastTime = new Date().getTime()
+window.setInterval(function() {
+    let bestCar= main_cars[main_cars.map(e=>e.y).indexOf(Math.min(...main_cars.map(e=>e.y)))]
+    if(!bestCar.end){
+      for (let i = 0; i < patchCount/5; i++) {
+        let newCar =  new MainCar()
+        newCar.x=bestCar.x
+        newCar.y=bestCar.y
+        main_cars.push(newCar)
+      }
+    }
+}, 2000);
+
 const main = () =>{
   window.requestAnimationFrame(main)
   let crntTime = new Date().getTime()
   if ((crntTime - lastTime) >= latency){
     lastTime = crntTime;
+    let bestCarIndex = main_cars.map(e=>e.y).indexOf(Math.min(...main_cars.map(e=>e.y)))
     ctx.reset()
     ctx.scale(scale, scale); // scale the drawing context
     ctx.save()
-    ctx.translate(0,-main_car.y+CANVAS_HEIGHT*0.7)
+    ctx.translate(0,-main_cars[bestCarIndex].y+CANVAS_HEIGHT*0.7)
     road.draw()
-    traffic.forEach(car=>{
+    let indices = []
+    traffic.forEach((car, index)=>{
       car.update()
       car.draw()
+      if(car.y - main_cars[bestCarIndex].y > 300){
+        indices.push(index)
+      }
     })
-    main_car.update(traffic)
-    main_car.draw()
+    let temp = false
+    for (let i of indices){
+      traffic[i] = new TrafficCar(road.getLanCenter(Math.round(Math.random()*3)), main_cars[bestCarIndex].y-300)
+      if (temp || Boolean(Math.round(Math.random()))){
+        temp = false
+      }else{
+        temp=true
+      }
+    }
+    ctx.globalAlpha = 0.4
+    main_cars.forEach((car, index)=>{
+      car.update(traffic)
+      car.draw()
+      if(car.end){
+        main_cars[index] = null
+      }
+    })
+    ctx.globalAlpha = 1
+    main_cars = main_cars.filter(car=>{
+      if (car!=null){
+        return car
+      }
+    })
+    bestCarIndex = main_cars.map(e=>e.y).indexOf(Math.min(...main_cars.map(e=>e.y)))
+    main_cars[bestCarIndex].draw(true)
     ctx.restore()
   }
 }
